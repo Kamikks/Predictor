@@ -6,15 +6,13 @@ import tensorflow as tf
 import collections
 import MeCab
 import sys
-
+import random
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
 batch_size = 1
 num_words = 64 # all words in train_dataset
-num_embeddings = 16
-num_lstm_layer = 3
 
 index_of = {}
 word_of = {}
@@ -53,16 +51,28 @@ for i in range(text_size):
 def word_from_prob(prob):
   return [word_of[i] for i in np.argmax(prob, 1)]
 
-## sample
-#def sample(prediction):
-#  p = np.zeros(shape=[1, vocab_size], dtype=np.float)
-#  p[0, 
+## sampling word from prediction
+def sample_distribution(distribution):
+  r = random.uniform(0, 1)
+  s = 0
+  for i in range(len(distribution)):
+    s += distribution[i]
+    if s >= r:
+      return i
+  return len(distribution) - 1
+
+def sample(prediction):
+  p = np.zeros(shape=[1, vocab_size], dtype=np.float)
+  p[0, sample_distribution(prediction[0])] = 1.0
+  return p
 
 ## rnn model
+num_unrollings = 20
+
 graph = tf.Graph()
 with graph.as_default():
   train_dataset = list()
-  for i in range(text_size): 
+  for i in range(num_unrollings): 
     train_dataset.append(tf.placeholder(tf.float32, shape=[batch_size, vocab_size]))
   train_inputs = train_dataset[:len(train_dataset) - 1] 
   train_labels = train_dataset[1:]
@@ -83,7 +93,6 @@ with graph.as_default():
         scope.reuse_variables()
       output, state = lstm(current_word, state)
       outputs.append(output) 
-    print(tf.concat(0, outputs))
 
   with tf.control_dependencies([saved_state.assign(state)]):
     logits = tf.matmul(tf.concat(0, outputs), weight) + bias
@@ -91,7 +100,7 @@ with graph.as_default():
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, tf.concat(0, train_labels)))
 
   ## optimizer
-  optimizer = tf.train.GradientDescentOptimizer(0.3).minimize(loss)
+  optimizer = tf.train.GradientDescentOptimizer(0.1).minimize(loss)
 
   ## prediction
   test_input = tf.placeholder(tf.float32, shape=[1, vocab_size])
@@ -100,22 +109,37 @@ with graph.as_default():
   with tf.control_dependencies([saved_test_state.assign(test_state)]):
     test_prediction = tf.nn.softmax(tf.matmul(test_output, weight) + bias) 
 
+
 ## training
+num_steps = 16 
+
 with tf.Session(graph=graph) as session:
+  # train
   tf.initialize_all_variables().run()
   feed_dict = dict()
-  for i in range(text_size):
-    feed_dict[train_dataset[i]] = [textdata[i]]
-  _, l = session.run([optimizer, loss], feed_dict=feed_dict)
-  print("Test Prediction:")
-  test_data = [textdata[3]]
-  print(word_from_prob(test_data)[0])
-  sentence = word_from_prob(test_data)[0] 
+  for step in range(num_steps):
+    for cursor in range(text_size - num_unrollings):
+      #train_sentence = ""
+      for i in range(num_unrollings):
+        feed_dict[train_dataset[i]] = [textdata[cursor + i]]
+        #train_sentence += word_from_prob([textdata[cursor + i]])[0]
+        #train_sentence += " "
+      #print(train_sentence)
+      _, l = session.run([optimizer, loss], feed_dict=feed_dict)
+    if(step % 2 == 0):
+      print('Loss at step %d: %f' % (step, l))
+
+  # sample prediction
+  print("Sample Prediction:")
   for _ in range(10):
-    prediction = test_prediction.eval({test_input: test_data})
-    w = word_from_prob(prediction)[0]
-    sentence += w
-    sentence += " "
-    test_data = np.zeros(shape=(1, vocab_size), dtype=np.float)
-    test_data[0, index_of[w]] = 1.0
-  print(sentence)
+    test_data = [textdata[random.randint(0, text_size-1)]]
+    sentence = word_from_prob(test_data)[0] 
+    for _ in range(20):
+      prediction = test_prediction.eval({test_input: test_data})
+      w = word_from_prob(sample(prediction))[0]
+      #w = word_from_prob(prediction)[0]
+      sentence += w
+      sentence += " "
+      test_data = np.zeros(shape=(1, vocab_size), dtype=np.float)
+      test_data[0, index_of[w]] = 1.0
+    print(sentence)
