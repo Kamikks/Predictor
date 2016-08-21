@@ -7,6 +7,8 @@ import collections
 import MeCab
 import sys
 import random
+import os.path as path
+import shutil
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
@@ -20,9 +22,9 @@ counts_of = collections.Counter()
 text = []
 
 
-m = MeCab.Tagger()
 
 ## read and parse train data
+m = MeCab.Tagger()
 with open('train.txt') as f:
   for line in f:
     for l in m.parse(line).splitlines():
@@ -53,7 +55,7 @@ def word_from_prob(prob):
 
 ## sampling word from prediction
 def sample_distribution(distribution):
-  r = random.uniform(0, 1)
+  r = random.uniform(0.2, 0.8)
   s = 0
   for i in range(len(distribution)):
     s += distribution[i]
@@ -96,11 +98,11 @@ with graph.as_default():
 
   with tf.control_dependencies([saved_state.assign(state)]):
     logits = tf.matmul(tf.concat(0, outputs), weight) + bias
-
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, tf.concat(0, train_labels)))
 
   ## optimizer
-  optimizer = tf.train.GradientDescentOptimizer(0.1).minimize(loss)
+  optimizer = tf.train.GradientDescentOptimizer(0.6).minimize(loss)
+
 
   ## prediction
   test_input = tf.placeholder(tf.float32, shape=[1, vocab_size])
@@ -111,35 +113,53 @@ with graph.as_default():
 
 
 ## training
-num_steps = 16 
+num_steps = 256 
 
 with tf.Session(graph=graph) as session:
-  # train
+  # initialize
   tf.initialize_all_variables().run()
+  saver = tf.train.Saver()
   feed_dict = dict()
+
+  # restore model
+  if path.exists("model.saved"):
+    saver.restore(session, "model.saved")
+  
+  # train
   for step in range(num_steps):
-    for cursor in range(text_size - num_unrollings):
-      #train_sentence = ""
+    # pick up 64 sample
+    batch_index = random.sample(range(0, text_size - num_unrollings), 64)
+    for cursor in batch_index:
+      # train_sentence = ""
       for i in range(num_unrollings):
         feed_dict[train_dataset[i]] = [textdata[cursor + i]]
-        #train_sentence += word_from_prob([textdata[cursor + i]])[0]
-        #train_sentence += " "
-      #print(train_sentence)
+        # train_sentence += word_from_prob([textdata[cursor + i]])[0]
+        # train_sentence += " "
+      # print(train_sentence)
       _, l = session.run([optimizer, loss], feed_dict=feed_dict)
+
+    # print loss 
     if(step % 2 == 0):
       print('Loss at step %d: %f' % (step, l))
 
-  # sample prediction
-  print("Sample Prediction:")
-  for _ in range(10):
-    test_data = [textdata[random.randint(0, text_size-1)]]
-    sentence = word_from_prob(test_data)[0] 
-    for _ in range(20):
-      prediction = test_prediction.eval({test_input: test_data})
-      w = word_from_prob(sample(prediction))[0]
-      #w = word_from_prob(prediction)[0]
-      sentence += w
-      sentence += " "
-      test_data = np.zeros(shape=(1, vocab_size), dtype=np.float)
-      test_data[0, index_of[w]] = 1.0
-    print(sentence)
+    # sample prediction
+    if(step % 6 == 0):
+      print("Sample Prediction:")
+      for _ in range(10):
+        test_data = [textdata[random.randint(0, text_size-1)]]
+        sentence = word_from_prob(test_data)[0] 
+        for _ in range(20):
+          prediction = test_prediction.eval({test_input: test_data})
+          w = word_from_prob(sample(prediction))[0]
+          #w = word_from_prob(prediction)[0]
+          sentence += w
+          sentence += " "
+          test_data = np.zeros(shape=(1, vocab_size), dtype=np.float)
+          test_data[0, index_of[w]] = 1.0
+        print(sentence)
+
+    # save trained model
+    shutil.copyfile("model.saved", "model.saved.bak")
+    saver.save(session, "model.saved")
+
+

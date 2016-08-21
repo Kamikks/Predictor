@@ -1,1 +1,4 @@
 train.txt
+model.saved*
+checkpoint
+
