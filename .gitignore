@@ -1,4 +1,5 @@
 train.txt
 model.saved*
 checkpoint
+*.pyc
 
