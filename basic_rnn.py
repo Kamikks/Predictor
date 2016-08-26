@@ -9,16 +9,16 @@ import sys
 import random
 import os.path as path
 import shutil
+import pickle
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
-num_words = 64 # all words in train_dataset
-
 
 ## read and parse train data
-vocab_size = 100000
+vocab_size = 10000
 raw_words = []
+words = []
 
 m = MeCab.Tagger()
 with open('train.txt') as f:
@@ -27,18 +27,27 @@ with open('train.txt') as f:
       w = l.split()[0]
       raw_words.append(w)
 
+for w in raw_words:
+  words.append(index_of[w])
+
 ## picked up most common vocab_size(=50000) words
 index_of = {}
 word_of = {}
 count = [['UNK', -1]]
 
-count.extend(collections.Counter(raw_words).most_common(vocab_size - 1))
-index_of['UNK'] = 0
-word_of[0] = 'UNK'
-for word, _ in count:
-  i = len(index_of)
-  index_of[word] = i 
-  word_of[i] = word
+if path.exists('dictionary.pickle'):
+  with open('dictionary.pickle', mode='rb') as f:
+    [index_of, word_of] = pickle.load(f)
+else: 
+  count.extend(collections.Counter(raw_words).most_common(vocab_size - 1))
+  index_of['UNK'] = 0
+  word_of[0] = 'UNK'
+  for word, _ in count:
+    i = len(index_of)
+    index_of[word] = i 
+    word_of[i] = word
+  with open('dictionary.pickle', mode='wb') as f:
+    pickle.dump([index_of, word_of], f)
 
 ##  trans word to sampled index 
 def word_to_array(word):
@@ -51,6 +60,11 @@ def word_to_array(word):
     # unknown word
     data[0] = 1
 
+  return data
+
+def index_to_array(i):
+  data = np.zeros(shape=(vocab_size), dtype=np.int32)
+  data[i] = 1
   return data
 
 ## print 
@@ -85,8 +99,8 @@ def sample(prediction):
   return p
 
 ## rnn model
-num_unrollings = 30
-batch_size = 1
+num_unrollings = 100
+batch_size = 20 
 embed_size = 200
 
 graph = tf.Graph()
@@ -97,7 +111,7 @@ with graph.as_default():
 
   train_labels = list()
   for i in range(num_unrollings):
-    train_labels.append(tf.placeholder(tf.float32, shape=[1, vocab_size]))
+    train_labels.append(tf.placeholder(tf.float32, shape=[batch_size, vocab_size]))
 
   # variable
   embeddings = tf.Variable(tf.random_uniform([vocab_size, embed_size], -1.0, 1.0))
@@ -122,26 +136,25 @@ with graph.as_default():
 
   with tf.control_dependencies([saved_state.assign(state)]):
     logits = tf.matmul(tf.concat(0, outputs), weight) + bias
-    print(logits)
-    print(tf.concat(0, train_labels))
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, tf.concat(0, train_labels)))
 
   ## optimizer
-  optimizer = tf.train.GradientDescentOptimizer(0.3).minimize(loss)
+  optimizer = tf.train.GradientDescentOptimizer(0.7).minimize(loss)
 
 
   ## prediction
   test_input = tf.placeholder(tf.int32, shape=[1])
   test_embed = tf.nn.embedding_lookup(embeddings, test_input)
   saved_test_state = tf.Variable(tf.zeros([1, lstm.state_size]))
-  test_output, test_state = lstm(test_embed, saved_state)
+  test_output, test_state = lstm(test_embed, saved_test_state)
   with tf.control_dependencies([saved_test_state.assign(test_state)]):
     test_prediction = tf.nn.softmax(tf.matmul(test_output, weight) + bias) 
 
 
 
 ## training
-num_steps = 16 
+skip = len(words) / batch_size
+n_epochs = 128 
 with tf.Session(graph=graph) as session:
   # initialize
   tf.initialize_all_variables().run()
@@ -153,30 +166,30 @@ with tf.Session(graph=graph) as session:
     saver.restore(session, "model.saved")
 
   # train
-  for step in range(num_steps):
-    # pick up 64 sample
-    batch_index = random.sample(range(0, len(raw_words) - num_unrollings), 64)
-    for cursor in batch_index:
-      # train_sentence = ""
-      for i in range(num_unrollings):
-        feed_dict[train_dataset[i]] = [index_of[raw_words[cursor + i]]]
-        feed_dict[train_labels[i]] = [word_to_array(raw_words[cursor + i + 1])]
-        # train_sentence += word_from_prob([raw_words[cursor + i]])[0]
-        # train_sentence += " "
-      # print(train_sentence)
-      _, l = session.run([optimizer, loss], feed_dict=feed_dict)
+  for epoch in range(n_epochs):
+    for i in range(num_unrollings):
+      dataset = []
+      labels = []
+      for j in range(batch_size): 
+        dataset.append(words[(j * skip + i) % len(words)])
+        labels.append(index_to_array(words[(j * skip + i + 1) % len(words)]))
+      
+      feed_dict[train_dataset[i]] = dataset
+      feed_dict[train_labels[i]] = labels
+
+    _, l = session.run([optimizer, loss], feed_dict=feed_dict)
 
     # print loss
-    if(step % 2 == 0):
-      print('Loss at step %d: %f' % (step, l))
+    if(epoch % 2 == 0):
+      print('Loss at epoch %d: %f' % (epoch, l))
 
     # sample prediction
-    if(step % 6 == 0):
+    if(epoch % 6 == 0):
       print("Sample Prediction:")
-      for _ in range(10):
+      for _ in range(1):
         test_data = [random.choice(index_of.values())]
         sentence = word_of[test_data[0]]
-        for _ in range(20):
+        for _ in range(100):
           prediction = test_prediction.eval({test_input: test_data})
           w = word_from_prob(sample(prediction))[0]
           #w = word_from_prob(prediction)[0]
@@ -185,7 +198,7 @@ with tf.Session(graph=graph) as session:
           test_data = [index_of[w]]
         print(sentence)
 
-    # save trained model
+    # save trained model by epoch
     #shutil.copyfile("model.saved", "model.saved.bak")
     saver.save(session, "model.saved")
 
