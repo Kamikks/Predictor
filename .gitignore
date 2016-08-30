@@ -2,4 +2,5 @@ train.txt
 model.saved*
 checkpoint
 *.pyc
+dictionary.pickle
 
