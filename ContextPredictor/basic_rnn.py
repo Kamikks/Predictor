@@ -16,7 +16,7 @@ sys.setdefaultencoding("utf-8")
 
 
 ## read and parse train data
-vocab_size = 10000
+vocab_size = 2000
 raw_words = []
 words = []
 
@@ -27,29 +27,34 @@ with open('train.txt') as f:
       w = l.split()[0]
       raw_words.append(w)
 
-
 ## picked up most common vocab_size(=50000) words
 index_of = {}
 word_of = {}
 count = [['UNK', -1]]
+index_of['UNK'] = 0
+word_of[0] = 'UNK'
 
+## load existed dictionary
 if path.exists('dictionary.pickle'):
   with open('dictionary.pickle', mode='rb') as f:
     [index_of, word_of] = pickle.load(f)
-    vocab_size = len(word_of)
-else: 
-  count.extend(collections.Counter(raw_words).most_common(vocab_size - 1))
-  index_of['UNK'] = 0
-  word_of[0] = 'UNK'
-  for word, _ in count:
+    # vocab_size = len(word_of)
+
+## add new words to dictionary
+count.extend(collections.Counter(raw_words).most_common(vocab_size - 1))
+for word, _ in count:
+  if not index_of.has_key(word):
     i = len(index_of)
     index_of[word] = i 
     word_of[i] = word
-  with open('dictionary.pickle', mode='wb') as f:
-    pickle.dump([index_of, word_of], f)
-  vocab_size = len(word_of)
 
-print('vocabraty size: %d' % vocab_size)
+## save dictionary
+with open('dictionary.pickle', mode='wb') as f:
+  pickle.dump([index_of, word_of], f)
+
+## print statistics
+print('dictionary size: %d' % len(index_of))
+print('text size: %d' % len(raw_words))
 
 
 for w in raw_words:
@@ -81,7 +86,6 @@ def word_from_prob(prob):
     else:
       # unknown word
       return [word_of[0]]
-  #return [word_of[i] for i in np.argmax(prob, 1)]
 
 ## sampling word from prediction
 def sample_distribution(distribution):
@@ -101,21 +105,21 @@ def sample(prediction):
 ## rnn model
 num_unrollings = 10
 batch_size = 128 
-embed_size = 64 
+embed_size = 100 
 num_nodes = 64
 
 graph = tf.Graph()
 with graph.as_default():
   train_dataset = list()
   for i in range(num_unrollings): 
-    train_dataset.append(tf.placeholder(tf.float32, shape=[batch_size, vocab_size]))
+    train_dataset.append(tf.placeholder(tf.int32, shape=[batch_size]))
 
   train_labels = list()
   for i in range(num_unrollings):
     train_labels.append(tf.placeholder(tf.float32, shape=[batch_size, vocab_size]))
 
   # variable
-  #embeddings = tf.Variable(tf.random_uniform([vocab_size, embed_size], -1.0, 1.0))
+  embeddings = tf.Variable(tf.random_uniform([vocab_size, embed_size], -1.0, 1.0))
   weight = tf.Variable(tf.truncated_normal([num_nodes, vocab_size], -0.1, 0.1))
   bias = tf.Variable(tf.zeros([vocab_size]))
 
@@ -129,8 +133,7 @@ with graph.as_default():
   with tf.variable_scope("rnn") as scope:
     state = saved_state
     for current_word in train_dataset:
-      embed = current_word
-      #embed = tf.nn.embedding_lookup(embeddings, current_word)
+      embed = tf.nn.embedding_lookup(embeddings, current_word)
       if len(outputs) > 0:
         scope.reuse_variables()
       output, state = lstm(embed, state)
@@ -145,21 +148,18 @@ with graph.as_default():
 
 
   ## prediction
-  test_input = tf.placeholder(tf.float32, shape=[1, vocab_size])
-  test_embed = test_input
+  sample_input = tf.placeholder(tf.int32, shape=[1])
   with tf.variable_scope("rnn") as scope:
     scope.reuse_variables()
-    #test_embed = tf.nn.embedding_lookup(embeddings, test_input)
-    saved_test_state = tf.Variable(tf.zeros([1, lstm.state_size]))
-    test_output, test_state = lstm(test_embed, saved_test_state)
-  with tf.control_dependencies([saved_test_state.assign(test_state)]):
-    test_prediction = tf.nn.softmax(tf.matmul(test_output, weight) + bias) 
-
-
+    sample_embed = tf.nn.embedding_lookup(embeddings, sample_input)
+    sample_saved_state = tf.Variable(tf.zeros([1, lstm.state_size]))
+    sample_output, sample_state = lstm(sample_embed, sample_saved_state)
+  with tf.control_dependencies([sample_saved_state.assign(sample_state)]):
+    sample_prediction = tf.nn.softmax(tf.matmul(sample_output, weight) + bias) 
 
 ## training
 skip = len(words) / batch_size
-n_epochs = 5001 
+n_epochs = 3001 
 with tf.Session(graph=graph) as session:
   # initialize
   tf.initialize_all_variables().run()
@@ -175,26 +175,14 @@ with tf.Session(graph=graph) as session:
     for i in range(num_unrollings):
       dataset = []
       labels = []
-      # labels_i = []
 
       for j in range(batch_size): 
-        # dataset.append(words[(j * skip + i) % len(words)])
-        dataset.append(index_to_array(words[(j * skip + i) % len(words)]))
+        dataset.append(words[(j * skip + i) % len(words)])
         labels.append(index_to_array(words[(j * skip + i + 1) % len(words)]))
-        # labels_i.append(words[(j * skip + i + 1) % len(words)])
       
       feed_dict[train_dataset[i]] = dataset
       feed_dict[train_labels[i]] = labels
-      # print('num_unrolling: %d' % i)
-      # print(dataset)
-      # print(labels_i)
-      # for l in labels:
-      #   print(len(l))
-      #   for m in range(len(l)):
-      #     if l[m] == 1:
-      #       print(m)
 
-    #print(feed_dict[train_dataset[0]])
     _, l = session.run([optimizer, loss], feed_dict=feed_dict)
 
     # print loss
@@ -204,19 +192,16 @@ with tf.Session(graph=graph) as session:
     # sample prediction
     if(epoch % 500 == 0):
       print("Sample Prediction:")
-      for _ in range(1):
-        test_data = [random.choice(index_of.values())]
-        sentence = word_of[test_data[0]]
-        test_data = [index_to_array(test_data[0])]
-        for _ in range(100):
-          prediction = test_prediction.eval({test_input: test_data})
+      for _ in range(5):
+        sample_data = [random.choice(index_of.values())]
+        sentence = word_of[sample_data[0]]
+        for _ in range(20):
+          prediction = sample_prediction.eval({sample_input: sample_data})
           w = word_from_prob(sample(prediction))[0]
           sentence += w
-          #sentence += " "
-          test_data = [index_to_array(index_of[w])]
+          sample_data = [index_of[w]]
         print(sentence)
 
     # save trained model by epoch
-    #shutil.copyfile("model.saved", "model.saved.bak")
   saver.save(session, "model.saved")
 
