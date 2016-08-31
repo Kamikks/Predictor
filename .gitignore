@@ -1,6 +1,6 @@
-train.txt
-model.saved*
-checkpoint
-*.pyc
-dictionary.pickle
+ContextPredictor/train.txt
+ContextPredictor/model.saved*
+ContextPredictor/checkpoint
+ContextPredictor/*.pyc
+ContextPredictor/dictionary.pickle
 
