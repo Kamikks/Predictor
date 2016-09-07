@@ -1,5 +1,4 @@
 # -*- coding:utf-8 -*-
-
 from __future__ import print_function
 import numpy as np
 import tensorflow as tf
@@ -10,67 +9,44 @@ import random
 import os.path as path
 import shutil
 import pickle
+import argparse
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
 
-## read and parse train data
-vocab_size = 2000
-raw_words = []
-words = []
+### argument parser ###
+n_epochs = 501 
+parser = argparse.ArgumentParser()
+parser.add_argument('--epoch', type=int, dest='epoch', nargs=1)
+args = parser.parse_args()
+n_epochs = args.epoch[0]
 
-m = MeCab.Tagger()
-with open('train.txt') as f:
-  for line in f:
-    for l in m.parse(line).splitlines():
-      w = l.split()[0]
-      raw_words.append(w)
 
-## picked up most common vocab_size(=50000) words
-index_of = {}
-word_of = {}
-count = [['UNK', -1]]
-index_of['UNK'] = 0
-word_of[0] = 'UNK'
+### load traindata  ###
+if path.exists('traindata.pickle'):
+  with open('traindata.pickle', mode='rb') as f:
+    [text_raw, text_index] = pickle.load(f)
+else:
+  sys.exit("traindata.pickle does not exist")
 
-## load existed dictionary
+### load dictionary ###
 if path.exists('dictionary.pickle'):
   with open('dictionary.pickle', mode='rb') as f:
-    [index_of, word_of] = pickle.load(f)
-    # vocab_size = len(word_of)
-
-## add new words to dictionary
-count.extend(collections.Counter(raw_words).most_common(vocab_size - 1))
-for word, _ in count:
-  if not index_of.has_key(word):
-    i = len(index_of)
-    index_of[word] = i 
-    word_of[i] = word
-
-## save dictionary
-with open('dictionary.pickle', mode='wb') as f:
-  pickle.dump([index_of, word_of], f)
-
-## print statistics
-print('dictionary size: %d' % len(index_of))
-print('text size: %d' % len(raw_words))
+    [index_of, word_of, vocab_size] = pickle.load(f)
+else:
+  sys.exit("dictionary.pickle does not exist")
 
 
-for w in raw_words:
-  words.append(index_of[w])
-
-##  trans word to sampled index 
+###  trans word to sampled index  ###
 def word_to_array(word):
   data = np.zeros(shape=(vocab_size), dtype=np.float32)
-
   if index_of[word] > 0:
     # known word
     data[index_of[word]] = 1
   else:
     # unknown word
     data[0] = 1
-
   return data
 
 def index_to_array(i):
@@ -78,32 +54,20 @@ def index_to_array(i):
   data[i] = 1
   return data
 
-## word_from_prob
+## word_from_probability ###
 def word_from_prob(prob):
-  for i in np.argmax(prob, 1):
+  p = np.zeros(shape=[1, vocab_size], dtype=np.float)
+  #i = random.randint(0, len(prob[0]) / 10)
+  p[0, random.choice(np.argsort(prob[0])[-5:])] = 1.0
+  for i in np.argmax(p, 1):
     if i < len(word_of):
       return [word_of[i]]
     else:
       # unknown word
       return [word_of[0]]
 
-## sampling word from prediction
-def sample_distribution(distribution):
-  r = random.uniform(0, 1)
-  s = 0
-  for i in range(len(distribution)):
-    s += distribution[i]
-    if s >= r:
-      return i
-  return len(distribution) - 1
-
-def sample(prediction):
-  p = np.zeros(shape=[1, vocab_size], dtype=np.float)
-  p[0, sample_distribution(prediction[0])] = 1.0
-  return p
-
-## rnn model
-num_unrollings = 10
+### rnn model ###
+num_unrollings = 30
 batch_size = 128 
 embed_size = 100 
 num_nodes = 64
@@ -146,7 +110,6 @@ with graph.as_default():
   ## optimizer
   optimizer = tf.train.GradientDescentOptimizer(0.7).minimize(loss)
 
-
   ## prediction
   sample_input = tf.placeholder(tf.int32, shape=[1])
   with tf.variable_scope("rnn") as scope:
@@ -157,9 +120,8 @@ with graph.as_default():
   with tf.control_dependencies([sample_saved_state.assign(sample_state)]):
     sample_prediction = tf.nn.softmax(tf.matmul(sample_output, weight) + bias) 
 
-## training
-skip = len(words) / batch_size
-n_epochs = 3001 
+### training ###
+skip = len(text_index) / batch_size
 with tf.Session(graph=graph) as session:
   # initialize
   tf.initialize_all_variables().run()
@@ -177,8 +139,8 @@ with tf.Session(graph=graph) as session:
       labels = []
 
       for j in range(batch_size): 
-        dataset.append(words[(j * skip + i) % len(words)])
-        labels.append(index_to_array(words[(j * skip + i + 1) % len(words)]))
+        dataset.append(text_index[(j * skip + i) % len(text_index)])
+        labels.append(index_to_array(text_index[(j * skip + i + 1) % len(text_index)]))
       
       feed_dict[train_dataset[i]] = dataset
       feed_dict[train_labels[i]] = labels
@@ -192,15 +154,17 @@ with tf.Session(graph=graph) as session:
     # sample prediction
     if(epoch % 500 == 0):
       print("Sample Prediction:")
-      for _ in range(5):
-        sample_data = [random.choice(index_of.values())]
-        sentence = word_of[sample_data[0]]
-        for _ in range(20):
-          prediction = sample_prediction.eval({sample_input: sample_data})
-          w = word_from_prob(sample(prediction))[0]
+      sample_data = [random.choice(index_of.values())]
+      sentence = word_of[sample_data[0]]
+      for _ in range(100):
+        prediction = sample_prediction.eval({sample_input: sample_data})
+        w = word_from_prob(prediction)[0]
+        if(w == 'EOS'):
+          sentence += '\n'
+        else: 
           sentence += w
-          sample_data = [index_of[w]]
-        print(sentence)
+        sample_data = [index_of[w]]
+      print(sentence)
 
     # save trained model by epoch
   saver.save(session, "model.saved")
