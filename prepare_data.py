@@ -27,10 +27,12 @@ if not path.exists(trainfile):
 ### read and parse train data ###
 text_raw = []
 text_index = []
+trainpath = path.join('data', 'traindata.pickle')
+dictpath = path.join('data', 'dictionary.pickle')
 
 # load data
-if path.exists('traindata.pickle'):
-  with open('traindata.pickle', mode='rb') as f:
+if path.exists(trainpath):
+  with open(trainpath, mode='rb') as f:
     [text_raw, text_index] = pickle.load(f)
 
 # create raw text data 
@@ -45,14 +47,14 @@ with open(trainfile) as f:
 ### create dictionary ###
 index_of = {}
 word_of = {}
-vocab_size = 2000
+vocab_size = 700
 count = [['NaN', -1]]
 index_of['NaN'] = 0
 word_of[0] = 'NaN'
 
 # load existed dictionary
-if path.exists('dictionary.pickle'):
-  with open('dictionary.pickle', mode='rb') as f:
+if path.exists(dictpath):
+  with open(dictpath, mode='rb') as f:
     [index_of, word_of, vocab_size] = pickle.load(f)
 
 # add new words to dictionary
@@ -64,7 +66,7 @@ for word, _ in count:
     word_of[i] = word
 
 # save dictionary
-with open('dictionary.pickle', mode='wb') as f:
+with open(dictpath, mode='wb') as f:
   pickle.dump([index_of, word_of, vocab_size], f)
 
 
@@ -74,7 +76,7 @@ for w in text_raw:
   text_index.append(index_of[w])
 
 # save traindata
-with open('traindata.pickle', mode='wb') as f:
+with open(trainpath, mode='wb') as f:
   pickle.dump([text_raw, text_index], f)
 
 

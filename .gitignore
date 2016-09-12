@@ -1,6 +1,2 @@
-ContextPredictor/train.txt
-ContextPredictor/model.saved*
-ContextPredictor/checkpoint
-ContextPredictor/*.pyc
-ContextPredictor/dictionary.pickle
-
+data/*
+lib/*.pyc

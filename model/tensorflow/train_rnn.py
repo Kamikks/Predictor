@@ -4,16 +4,19 @@ import numpy as np
 import tensorflow as tf
 import collections
 import MeCab
-import sys
 import random
+import os
 import os.path as path
 import shutil
 import pickle
 import argparse
-
+import sys
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
+module_path = path.join(os.getcwd(), '../../lib')
+sys.path.append(module_path)
+import mllib
 
 ### argument parser ###
 n_epochs = 501 
@@ -22,52 +25,13 @@ parser.add_argument('--epoch', type=int, dest='epoch', nargs=1)
 args = parser.parse_args()
 n_epochs = args.epoch[0]
 
-
-### load traindata  ###
-if path.exists('traindata.pickle'):
-  with open('traindata.pickle', mode='rb') as f:
-    [text_raw, text_index] = pickle.load(f)
-else:
-  sys.exit("traindata.pickle does not exist")
-
-### load dictionary ###
-if path.exists('dictionary.pickle'):
-  with open('dictionary.pickle', mode='rb') as f:
-    [index_of, word_of, vocab_size] = pickle.load(f)
-else:
-  sys.exit("dictionary.pickle does not exist")
-
-
-###  trans word to sampled index  ###
-def word_to_array(word):
-  data = np.zeros(shape=(vocab_size), dtype=np.float32)
-  if index_of[word] > 0:
-    # known word
-    data[index_of[word]] = 1
-  else:
-    # unknown word
-    data[0] = 1
-  return data
-
-def index_to_array(i):
-  data = np.zeros(shape=(vocab_size), dtype=np.float32)
-  data[i] = 1
-  return data
-
-## word_from_probability ###
-def word_from_prob(prob):
-  p = np.zeros(shape=[1, vocab_size], dtype=np.float)
-  #i = random.randint(0, len(prob[0]) / 10)
-  p[0, random.choice(np.argsort(prob[0])[-5:])] = 1.0
-  for i in np.argmax(p, 1):
-    if i < len(word_of):
-      return [word_of[i]]
-    else:
-      # unknown word
-      return [word_of[0]]
+### load data ###
+loadpath = path.join(os.getcwd(), '../../data')
+[text_raw, text_index, index_of, word_of, vocab_size] = mllib.load_data(loadpath)
+savepath = path.join(loadpath, 'model.save')
 
 ### rnn model ###
-num_unrollings = 30
+num_unrollings = 10
 batch_size = 128 
 embed_size = 100 
 num_nodes = 64
@@ -129,8 +93,8 @@ with tf.Session(graph=graph) as session:
   feed_dict = dict()
 
   # restore model
-  if path.exists("model.saved"):
-    saver.restore(session, "model.saved")
+  if path.exists(savepath):
+    saver.restore(session, savepath)
 
   # train
   for epoch in range(n_epochs):
@@ -140,7 +104,7 @@ with tf.Session(graph=graph) as session:
 
       for j in range(batch_size): 
         dataset.append(text_index[(j * skip + i) % len(text_index)])
-        labels.append(index_to_array(text_index[(j * skip + i + 1) % len(text_index)]))
+        labels.append(mllib.index_to_array(text_index[(j * skip + i + 1) % len(text_index)], vocab_size))
       
       feed_dict[train_dataset[i]] = dataset
       feed_dict[train_labels[i]] = labels
@@ -158,7 +122,7 @@ with tf.Session(graph=graph) as session:
       sentence = word_of[sample_data[0]]
       for _ in range(100):
         prediction = sample_prediction.eval({sample_input: sample_data})
-        w = word_from_prob(prediction)[0]
+        w = word_of[mllib.index_from_prob(prediction, len(word_of))]
         if(w == 'EOS'):
           sentence += '\n'
         else: 
@@ -167,5 +131,5 @@ with tf.Session(graph=graph) as session:
       print(sentence)
 
     # save trained model by epoch
-  saver.save(session, "model.saved")
+  saver.save(session, savepath)
 
