@@ -47,7 +47,7 @@ with open(trainfile) as f:
 ### create dictionary ###
 index_of = {}
 word_of = {}
-vocab_size = 700
+vocab_size = 10000 
 count = [['NaN', -1]]
 index_of['NaN'] = 0
 word_of[0] = 'NaN'
