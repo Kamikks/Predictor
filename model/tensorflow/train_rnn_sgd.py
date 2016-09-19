@@ -30,6 +30,15 @@ loadpath = path.join(os.getcwd(), '../../data')
 [text_raw, text_index, index_of, word_of, vocab_size] = mllib.load_data(loadpath)
 savepath = path.join(loadpath, 'model.save')
 
+### loss_result ###
+epoch_result = []
+loss_result =  []
+resultpath = path.join(path.join(os.getcwd(), '../../data'), 'result.pickle')
+if path.exists(resultpath):
+  with open(resultpath, mode='rb') as f:
+    [epoch_result, loss_result] = pickle.load(f)
+
+
 ### rnn model ###
 num_unrollings = 50
 batch_size = 32 
@@ -72,7 +81,7 @@ with graph.as_default():
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, tf.concat(0, train_labels)))
 
   ## optimizer
-  optimizer = tf.train.GradientDescentOptimizer(0.7).minimize(loss)
+  optimizer = tf.train.GradientDescentOptimizer(0.4).minimize(loss)
 
   ## prediction
   sample_input = tf.placeholder(tf.int32, shape=[1])
@@ -116,9 +125,13 @@ with tf.Session(graph=graph) as session:
     # print loss
     if(epoch % 100 == 0):
       print('Loss at epoch %d: %f' % (epoch, l))
+      epoch_result.append(epoch)
+      loss_result.append(l)
+      with open(resultpath, mode='wb') as f:
+        pickle.dump([epoch_result, loss_result], f)
 
     # sample prediction
-    if(epoch % 500 == 0):
+    if(epoch % 1000 == 0):
       print("Sample Prediction:")
       sample_data = [random.choice(index_of.values())]
       sentence = word_of[sample_data[0]]
@@ -132,6 +145,7 @@ with tf.Session(graph=graph) as session:
         sample_data = [index_of[w]]
       print(sentence)
 
-    # save trained model by epoch
-  saver.save(session, savepath)
+    # save trained model by 3000 epoch
+    if(epoch % 3000 == 0):
+      saver.save(session, savepath)
 

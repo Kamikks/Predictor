@@ -40,14 +40,15 @@ m = MeCab.Tagger()
 with open(trainfile) as f:
   for line in f:
     for l in m.parse(line).splitlines():
-      w = l.split()[0]
-      text_raw.append(w)
+      if(len(l.split()) > 0):
+        w = l.split()[0]
+        text_raw.append(w)
 
 
 ### create dictionary ###
 index_of = {}
 word_of = {}
-vocab_size = 10000 
+vocab_size = 13000 
 count = [['NaN', -1]]
 index_of['NaN'] = 0
 word_of[0] = 'NaN'
