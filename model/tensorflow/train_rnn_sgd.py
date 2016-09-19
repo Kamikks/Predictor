@@ -20,10 +20,17 @@ import mllib
 
 ### argument parser ###
 n_epochs = 501 
+n_samples = 100
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--epoch', type=int, dest='epoch', nargs=1)
+parser.add_argument('--sample', type=int, dest='sample', nargs=1)
 args = parser.parse_args()
-n_epochs = args.epoch[0]
+if args.epoch[0]:
+  n_epochs = args.epoch[0]
+if args.sample[0]:
+  n_samples = args.sample[0]
+  n_epochs = 1
 
 ### load data ###
 loadpath = path.join(os.getcwd(), '../../data')
@@ -135,7 +142,7 @@ with tf.Session(graph=graph) as session:
       print("Sample Prediction:")
       sample_data = [random.choice(index_of.values())]
       sentence = word_of[sample_data[0]]
-      for _ in range(100):
+      for _ in range(n_samples):
         prediction = sample_prediction.eval({sample_input: sample_data})
         w = word_of[mllib.index_from_prob(prediction, len(word_of))]
         if(w == 'EOS'):
