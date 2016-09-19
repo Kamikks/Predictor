@@ -52,6 +52,7 @@ num_unrollings = 50
 batch_size = 32 
 embed_size = 100 
 num_nodes = 256 
+num_layers = 3
 
 graph = tf.Graph()
 with graph.as_default():
@@ -70,7 +71,8 @@ with graph.as_default():
 
   # model
   lstm = tf.nn.rnn_cell.BasicLSTMCell(num_nodes)
-  saved_state = tf.Variable(tf.zeros([batch_size, lstm.state_size]), trainable=False)
+  stacked_lstm = tf.nn.rnn_cell.MultiRNNCell([lstm] * num_layers)
+  saved_state = tf.Variable(tf.zeros([batch_size, stacked_lstm.state_size]), trainable=False)
   
   # unrolled lstm loop
   loss = 0.0
@@ -81,7 +83,7 @@ with graph.as_default():
       embed = tf.nn.embedding_lookup(embeddings, current_word)
       if len(outputs) > 0:
         scope.reuse_variables()
-      output, state = lstm(embed, state)
+      output, state = stacked_lstm(embed, state)
       outputs.append(output) 
 
   with tf.control_dependencies([saved_state.assign(state)]):
@@ -96,8 +98,8 @@ with graph.as_default():
   with tf.variable_scope("rnn") as scope:
     scope.reuse_variables()
     sample_embed = tf.nn.embedding_lookup(embeddings, sample_input)
-    sample_saved_state = tf.Variable(tf.zeros([1, lstm.state_size]))
-    sample_output, sample_state = lstm(sample_embed, sample_saved_state)
+    sample_saved_state = tf.Variable(tf.zeros([1, stacked_lstm.state_size]))
+    sample_output, sample_state = stacked_lstm(sample_embed, sample_saved_state)
   with tf.control_dependencies([sample_saved_state.assign(sample_state)]):
     sample_prediction = tf.nn.softmax(tf.matmul(sample_output, weight) + bias) 
 
